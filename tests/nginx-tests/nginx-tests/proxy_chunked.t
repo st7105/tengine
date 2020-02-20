@@ -15,8 +15,6 @@ use strict;
 
 use Test::More;
 
-use IO::Select;
-
 BEGIN { use FindBin; chdir($FindBin::Bin); }
 
 use lib 'lib';
@@ -66,7 +64,7 @@ $t->write_file('inmemory.html',
 	'<!--#include virtual="/" set="one" --><!--#echo var="one" -->');
 
 $t->run_daemon(\&http_chunked_daemon);
-$t->run()->waitforsocket('127.0.0.1:8081');
+$t->run()->waitforsocket('127.0.0.1:' . port(8081));
 
 ###############################################################################
 
@@ -79,7 +77,7 @@ like(http_get('/inmemory.html'), qr/\x0d\x0aSEE-THIS$/s, 'chunked inmemory');
 sub http_chunked_daemon {
 	my $server = IO::Socket::INET->new(
 		Proto => 'tcp',
-		LocalAddr => '127.0.0.1:8081',
+		LocalAddr => '127.0.0.1:' . port(8081),
 		Listen => 5,
 		Reuse => 1
 	)

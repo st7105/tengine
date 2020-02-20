@@ -19,6 +19,8 @@ The force_exit support is not enabled by default. You should compile it explicit
  ./configure --with-force-exit
 ```
 
+Note: Removed force_exit directive after the Tengine-2.3.0 version and use Nginx official `worker_shutdown_timeout` , detailed reference [worker_shutdown_timeout](http://nginx.org/en/docs/ngx_core_module.html#worker_shutdown_timeout)
+
 
 ### worker_processes
 
@@ -31,6 +33,19 @@ Context: main
 Set the number of worker processes.
 When set to 'auto', which is also the default behavior, Tengine will create the same number of worker processes as your CPUs.
 
+
+### master_env
+
+Syntax: **master_env** variable[=value];
+
+Default: -
+
+Context: main
+
+If use `master_env` directive to set `NGX_DNS_RESOLVE_BACKUP_PATH` environment variable and dns cache will be enabled.
+When the dns server is unavailable, it's will use the last dns cache.
+
+For example `master_env NGX_DNS_RESOLVE_BACKUP_PATH=/home/tengine/worker/dnscache/path`, the domain A record results will be saved to the file and path depends on  `NGX_DNS_RESOLVE_BACKUP_PATH`.
 
 ### worker_cpu_affinity
 
@@ -146,3 +161,36 @@ Default: reuse_port off
 Context: events
 
 turn on support for SO_REUSEPORT socket option. This option is supported since Linux 3.9.
+
+Note:
+Removed reuse_port directive after the Tengine-2.3.0 version and use the official reuseport of Nginx, detailed reference [document](https://www.nginx.com/blog/socket-sharding-nginx-release-1-9-1/).
+
+### server_name
+
+Syntax: **server_name** name;
+
+Default: —
+
+Context: server
+
+`server_name` used in Stream module makes Tengine have the ability to listen same ip:port in multiply server blocks and. The connection will be attached to a certain server block by SNI extension in TLS. That means `server_name` should be used with SSL offloading(using `ssl` after `listen`).
+The `server_name` support in Stream module is not enabled by default. You should compile it explicitly:
+
+```
+ ./configure --with-stream_sni
+```
+Note:
+This feature is experimental. We will deprecate this feature if there is any conflict with similar feature of nginx official.
+
+### ssl_sni_force
+
+Syntax: **ssl_sni_force** on | off
+
+Default: ssl_sni_force off
+
+Context: stream, server
+
+`ssl_sni_force` will determine whether the TLS handsheke is rejected or not if SNI is not matched with server name which we configure by `server_name` in Stream module.
+
+Note:
+Same note in `server_name` above.

@@ -17,9 +17,14 @@
 typedef struct {
     ngx_flag_t                      enable;
 
+#if (NGX_HTTP_SSL && NGX_SSL_ASYNC)
+    ngx_flag_t                      async_enable;
+#endif
+
     ngx_ssl_t                       ssl;
 
     ngx_flag_t                      prefer_server_ciphers;
+    ngx_flag_t                      early_data;
 
     ngx_uint_t                      protocols;
 
@@ -32,9 +37,12 @@ typedef struct {
 
     time_t                          session_timeout;
 
-    ngx_str_t                       certificate;
-    ngx_str_t                       certificate_key;
-    ngx_str_t                       pass_phrase_dialog;
+    ngx_array_t                    *certificates;
+    ngx_array_t                    *certificate_keys;
+
+    ngx_array_t                    *certificate_values;
+    ngx_array_t                    *certificate_key_values;
+
     ngx_str_t                       dhparam;
     ngx_str_t                       ecdh_curve;
     ngx_str_t                       client_certificate;
@@ -59,9 +67,11 @@ typedef struct {
     ngx_uint_t                      line;
 } ngx_http_ssl_srv_conf_t;
 
+#if (T_NGX_HTTP_SSL_VCE)
 typedef struct {
     ngx_flag_t                      verify_exception;
 } ngx_http_ssl_loc_conf_t;
+#endif
 
 
 extern ngx_module_t  ngx_http_ssl_module;

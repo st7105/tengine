@@ -4,7 +4,7 @@
 
 Add proactive health check for the upstream servers.
 
-This module is not built by default, it should be enabled with the `--with-http_upstream_check_module` configuration parameter.
+This module is not built by default, it should be enabled with the `--add-module=modules/ngx_http_upstream_check_module` configuration parameter.
 
 # Examples #
 
@@ -26,7 +26,7 @@ This module is not built by default, it should be enabled with the `--with-http_
 
 			check interval=3000 rise=2 fall=5 timeout=1000 type=http;
 			check_keepalive_requests 100;
-			check_http_send "HEAD / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n";
+			check_http_send "HEAD / HTTP/1.1\r\nConnection: keep-alive\r\nHost: foo.bar.com\r\n\r\n";
 			check_http_expect_alive http_2xx http_3xx;
 		}
 

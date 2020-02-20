@@ -26,7 +26,7 @@ select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
 my $t = Test::Nginx->new()->has(qw/http http_v2 proxy rewrite charset gzip/)
-	->plan(141);
+	->plan(147);
 
 $t->write_file_expand('nginx.conf', <<'EOF');
 
@@ -61,7 +61,7 @@ http {
         }
         location /frame_size {
             http2_chunk_size 64k;
-            alias %%TESTDIR%%/t1.html;
+            alias %%TESTDIR%%;
             output_buffers 2 1m;
         }
         location /chunk_size {
@@ -84,9 +84,6 @@ http {
         location /charset {
             charset utf-8;
             return 200;
-        }
-        location /pid {
-            return 200 "pid $pid";
         }
     }
 
@@ -213,8 +210,31 @@ $frames = $s->read(all => [{ type => 'SETTINGS' }]);
 ok($frame, 'SETTINGS frame ack');
 is($frame->{flags}, 1, 'SETTINGS flags ack');
 
+# SETTINGS - no ack on PROTOCOL_ERROR
+
+$s = Test::Nginx::HTTP2->new(port(8080), pure => 1);
+$frames = $s->read(all => [
+	{ type => 'WINDOW_UPDATE' },
+	{ type => 'SETTINGS'}
+]);
+
+$s->h2_settings(1);
+$s->h2_settings(0, 0x5 => 42);
+
+$frames = $s->read(all => [
+	{ type => 'SETTINGS'},
+	{ type => 'GOAWAY' }
+]);
+
+($frame) = grep { $_->{type} eq 'SETTINGS' } @$frames;
+is($frame, undef, 'SETTINGS PROTOCOL_ERROR - no ack');
+
+($frame) = grep { $_->{type} eq 'GOAWAY' } @$frames;
+ok($frame, 'SETTINGS PROTOCOL_ERROR - GOAWAY');
+
 # PING
 
+$s = Test::Nginx::HTTP2->new();
 $s->h2_ping('SEE-THIS');
 $frames = $s->read(all => [{ type => 'PING' }]);
 
@@ -297,7 +317,10 @@ is($frame->{code}, 1, 'GOAWAY invalid stream - GOAWAY PROTOCOL_ERROR');
 # N.B. other implementation returns zero code, which is not anyhow regulated
 
 $s = Test::Nginx::HTTP2->new();
-syswrite($s->{socket}, pack("x2C2xN", 4, 0x5, 1));
+{
+	local $SIG{PIPE} = 'IGNORE';
+	syswrite($s->{socket}, pack("x2C2xN", 4, 0x5, 1));
+}
 $frames = $s->read(all => [{ type => "GOAWAY" }]);
 
 ($frame) = grep { $_->{type} eq "GOAWAY" } @$frames;
@@ -724,6 +747,47 @@ $frames = $s->read(all => [{ sid => $sid, fin => 1 }]);
 $sum = eval join '+', map { $_->{length} } @data;
 is($sum, 2**16 + 80, 'iws - increased');
 
+# INITIAL_WINDOW_SIZE duplicate settings
+
+# 6.5.  SETTINGS
+#   Each parameter in a SETTINGS frame replaces any existing value for
+#   that parameter.  Parameters are processed in the order in which they
+#   appear, and a receiver of a SETTINGS frame does not need to maintain
+#   any state other than the current value of its parameters.  Therefore,
+#   the value of a SETTINGS parameter is the last value that is seen by a
+#   receiver.
+
+$s = Test::Nginx::HTTP2->new();
+$s->h2_window(2**17);
+
+$sid = $s->new_stream({ path => '/t1.html' });
+
+$frames = $s->read(all => [{ sid => $sid, length => 2**16 - 1 }]);
+@data = grep { $_->{type} eq "DATA" } @$frames;
+$sum = eval join '+', map { $_->{length} } @data;
+is($sum, 2**16 - 1, 'iws duplicate - default stream window');
+
+# this should effect in extra stream window octect
+# $s->h2_settings(0, 0x4 => 42, 0x4 => 2**16);
+{
+	local $SIG{PIPE} = 'IGNORE';
+	syswrite($s->{socket}, pack("x2C2x5nNnN", 12, 0x4, 4, 42, 4, 2**16));
+}
+
+$frames = $s->read(all => [{ sid => $sid, length => 1 }]);
+@data = grep { $_->{type} eq "DATA" } @$frames;
+$sum = eval join '+', map { $_->{length} } @data;
+is($sum, 1, 'iws duplicate - updated stream window');
+
+# yet more octets to finish receiving the response
+
+$s->h2_settings(0, 0x4 => 2**16 + 80);
+
+$frames = $s->read(all => [{ sid => $sid, length => 80 }]);
+@data = grep { $_->{type} eq "DATA" } @$frames;
+$sum = eval join '+', map { $_->{length} } @data;
+is($sum, 80, 'iws duplicate - updated stream window 2');
+
 # probe for negative available space in a flow control window
 
 # 6.9.2.  Initial Flow-Control Window Size
@@ -770,7 +834,23 @@ is(@$frames[0]->{length}, 1, 'positive window - data length');
 
 }
 
+$s = Test::Nginx::HTTP2->new();
+$s->h2_window(2**30);
+$s->h2_settings(0, 0x4 => 2**30);
+
+$sid = $s->new_stream({ path => '/frame_size/tbig.html' });
+
+sleep 1;
+$s->h2_settings(0, 0x5 => 2**15);
+
+$frames = $s->read(all => [{ sid => $sid, fin => 1 }]);
+$lengths = join ' ', map { $_->{length} } @$frames;
+unlike($lengths, qr/16384 0 16384/, 'SETTINGS ack after queued DATA');
+
 # ask write handler in sending large response
+
+SKIP: {
+skip 'unsafe socket tests', 4 unless $ENV{TEST_NGINX_UNSAFE};
 
 $sid = $s->new_stream({ path => '/tbig.html' });
 
@@ -809,29 +889,12 @@ $s->h2_ping('SEE-THIS');
 $frames = $s->read(all => [{ type => 'PING' }]);
 ok(!grep ({ $_->{type} eq "PING" } @$frames), 'large response - send timeout');
 
-# stream with large response queued on write - RST_STREAM handling
-
-$s = Test::Nginx::HTTP2->new();
-$sid = $s->new_stream({ path => '/tbig.html' });
-
-$s->h2_window(2**30, $sid);
-$s->h2_window(2**30);
-
-select undef, undef, undef, 0.4;
-
-$s->h2_rst($sid, 8);
-$s->read(all => [{ sid => $sid, fin => 1 }], wait => 0.2);
-
-$sid = $s->new_stream();
-$frames = $s->read(all => [{ sid => $sid, fin => 1 }]);
-
-($frame) = grep { $_->{type} eq "HEADERS" } @$frames;
-is($frame->{sid}, 3, 'large response - queued with RST_STREAM');
+}
 
 # SETTINGS_MAX_FRAME_SIZE
 
 $s = Test::Nginx::HTTP2->new();
-$sid = $s->new_stream({ path => '/frame_size' });
+$sid = $s->new_stream({ path => '/frame_size/t1.html' });
 $s->h2_window(2**18, 1);
 $s->h2_window(2**18);
 
@@ -841,13 +904,31 @@ is($data[0]->{length}, 2**14, 'max frame size - default');
 
 $s = Test::Nginx::HTTP2->new();
 $s->h2_settings(0, 0x5 => 2**15);
-$sid = $s->new_stream({ path => '/frame_size' });
+$sid = $s->new_stream({ path => '/frame_size/t1.html' });
 $s->h2_window(2**18, 1);
 $s->h2_window(2**18);
 
 $frames = $s->read(all => [{ sid => $sid, fin => 1 }]);
 @data = grep { $_->{type} eq "DATA" } @$frames;
 is($data[0]->{length}, 2**15, 'max frame size - custom');
+
+# SETTINGS_INITIAL_WINDOW_SIZE + SETTINGS_MAX_FRAME_SIZE
+# Expanding available stream window should not result in emitting
+# new frames before remaining SETTINGS parameters were applied.
+
+$s = Test::Nginx::HTTP2->new();
+$s->h2_window(2**17);
+$s->h2_settings(0, 0x4 => 42);
+
+$sid = $s->new_stream({ path => '/frame_size/t1.html' });
+$s->read(all => [{ sid => $sid, length => 42 }]);
+
+$s->h2_settings(0, 0x4 => 2**17, 0x5 => 2**15);
+
+$frames = $s->read(all => [{ sid => $sid, fin => 1 }]);
+@data = grep { $_->{type} eq "DATA" } @$frames;
+$lengths = join ' ', map { $_->{length} } @data;
+is($lengths, '32768 32768 38', 'multiple SETTINGS');
 
 # stream multiplexing + WINDOW_UPDATE
 
@@ -1062,17 +1143,11 @@ undef $grace4;
 
 # GOAWAY without awaiting active streams, further streams ignored
 
-SKIP: {
-skip 'win32', 3 if $^O eq 'MSWin32';
-
-TODO: {
-local $TODO = 'not yet' unless $t->has_version('1.11.6');
-
 $s = Test::Nginx::HTTP2->new(port(8080));
 $sid = $s->new_stream({ path => '/t1.html' });
 $s->read(all => [{ sid => $sid, length => 2**16 - 1 }]);
 
-hup('/pid', 8081, $t);
+$t->reload();
 
 $frames = $s->read(all => [{ type => 'GOAWAY' }]);
 
@@ -1085,8 +1160,6 @@ $frames = $s->read(all => [{ sid => $sid2, fin => 0x4 }], wait => 0.5);
 ($frame) = grep { $_->{type} eq 'HEADERS' } @$frames;
 is($frame, undef, 'GOAWAY with active stream - no new stream');
 
-}
-
 $s->h2_window(100, $sid);
 $s->h2_window(100);
 $frames = $s->read(all => [{ sid => $sid, fin => 0x1 }]);
@@ -1094,8 +1167,6 @@ $frames = $s->read(all => [{ sid => $sid, fin => 0x1 }]);
 @data = grep { $_->{type} eq "DATA" && $_->{sid} == $sid } @$frames;
 $sum = eval join '+', map { $_->{length} } @data;
 is($sum, 81, 'GOAWAY with active stream - active stream DATA after GOAWAY');
-
-}
 
 # GOAWAY - force closing a connection by server with idle or active streams
 
@@ -1132,20 +1203,6 @@ sub gunzip_like {
 		IO::Uncompress::Gunzip::gunzip(\$in => \$out);
 
 		like($out, $re, $name);
-	}
-}
-
-sub hup {
-	my ($uri, $port, $t) = @_;
-
-	my $sock = sub { IO::Socket::INET->new('127.0.0.1:' . port(shift)) };
-	my ($pid) = http_get($uri, socket => $sock->($port)) =~ /pid (\d+)/;
-
-	kill 'HUP', $t->read_file('nginx.pid');
-
-	for (1 .. 20) {
-		last if http_get($uri, socket => $sock->($port)) !~ /pid $pid/;
-		select undef, undef, undef, 0.2;
 	}
 }
 

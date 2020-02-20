@@ -4,7 +4,7 @@
 
 该模块可以为Tengine提供主动式后端服务器健康检查的功能。
 
-该模块没有默认开启，它可以在配置编译选项的时候开启：`./configure --with-http_upstream_check_module`
+该模块没有默认开启，它可以在配置编译选项的时候开启：`./configure --add-module=modules/ngx_http_upstream_check_module`
 
 # Examples #
 
@@ -26,7 +26,7 @@
 
 			check interval=3000 rise=2 fall=5 timeout=1000 type=http;
 			check_keepalive_requests 100;
-			check_http_send "HEAD / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n";
+			check_http_send "HEAD / HTTP/1.1\r\nConnection: keep-alive\r\nHost: foo.bar.com\r\n\r\n";
 			check_http_expect_alive http_2xx http_3xx;
 		}
 

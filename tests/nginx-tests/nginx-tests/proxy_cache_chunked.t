@@ -11,7 +11,6 @@ use strict;
 
 use Test::More;
 
-use IO::Select;
 use Socket qw/ CRLF /;
 
 BEGIN { use FindBin; chdir($FindBin::Bin); }
@@ -23,8 +22,6 @@ use Test::Nginx;
 
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
-
-plan(skip_all => 'win32') if $^O eq 'MSWin32';
 
 my $t = Test::Nginx->new()->has(qw/http proxy cache/)->plan(2);
 
@@ -40,7 +37,7 @@ events {
 http {
     %%TEST_GLOBALS_HTTP%%
 
-    proxy_cache_path %%TESTDIR%%/cache keys_zone=NAME:10m;
+    proxy_cache_path %%TESTDIR%%/cache keys_zone=NAME:1m;
 
     server {
         listen       127.0.0.1:8080;
@@ -59,7 +56,7 @@ http {
 EOF
 
 $t->run_daemon(\&http_chunked_daemon);
-$t->run()->waitforsocket('127.0.0.1:8081');
+$t->run()->waitforsocket('127.0.0.1:' . port(8081));
 
 ###############################################################################
 
@@ -71,7 +68,7 @@ like(http_get("/"), qr/SEE-THIS.*HIT/s, "chunked cached");
 sub http_chunked_daemon {
 	my $server = IO::Socket::INET->new(
 		Proto => 'tcp',
-		LocalAddr => '127.0.0.1:8081',
+		LocalAddr => '127.0.0.1:' . port(8081),
 		Listen => 5,
 		Reuse => 1
 	)

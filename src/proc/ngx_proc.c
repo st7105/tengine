@@ -484,19 +484,6 @@ ngx_procs_process_init(ngx_cycle_t *cycle, ngx_proc_module_t *module,
         }
     }
 
-#ifdef RLIMIT_SIGPENDING
-    if (ccf->rlimit_sigpending != NGX_CONF_UNSET) {
-        rlmt.rlim_cur = (rlim_t) ccf->rlimit_sigpending;
-        rlmt.rlim_max = (rlim_t) ccf->rlimit_sigpending;
-
-        if (setrlimit(RLIMIT_SIGPENDING, &rlmt) == -1) {
-            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
-                          "process %V setrlimit(RLIMIT_SIGPENDING, %i) failed",
-                          &module->name, ccf->rlimit_sigpending);
-        }
-    }
-#endif
-
     if (geteuid() == 0) {
         if (setgid(ccf->group) == -1) {
             ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
@@ -698,10 +685,11 @@ ngx_procs_channel_handler(ngx_event_t *ev)
 
             ngx_processes[ch.slot].channel[0] = -1;
             break;
-
+#if (T_PIPES)
         case NGX_CMD_PIPE_BROKEN:
             ngx_pipe_broken_action(ev->log, ch.pid, 0);
             break;
+#endif
         }
     }
 }

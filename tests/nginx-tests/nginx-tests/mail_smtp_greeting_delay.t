@@ -22,7 +22,7 @@ select STDOUT; $| = 1;
 
 local $SIG{PIPE} = 'IGNORE';
 
-my $t = Test::Nginx->new()->has(qw/mail smtp http/)->plan(2)
+my $t = Test::Nginx->new()->has(qw/mail smtp/)->plan(2)
 	->write_file_expand('nginx.conf', <<'EOF')->run();
 
 %%TEST_GLOBALS%%
@@ -40,7 +40,7 @@ mail {
     server {
         listen     127.0.0.1:8025;
         protocol   smtp;
-        smtp_greeting_delay  100ms;
+        smtp_greeting_delay  1s;
     }
 }
 
@@ -54,12 +54,6 @@ EOF
 my $s = Test::Nginx::SMTP->new();
 $s->send('HELO example.com');
 $s->check(qr/^5.. /, "command before greeting - session must be rejected");
-
-TODO: {
-local $TODO = 'not yet' unless $t->has_version('1.5.6');
-
 ok($s->eof(), "session have to be closed");
-
-}
 
 ###############################################################################

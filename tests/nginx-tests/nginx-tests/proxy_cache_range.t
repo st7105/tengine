@@ -21,9 +21,7 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-plan(skip_all => 'win32') if $^O eq 'MSWin32';
-
-my $t = Test::Nginx->new()->has(qw/http proxy cache/)->plan(5)
+my $t = Test::Nginx->new()->has(qw/http proxy cache/)->plan(7)
 	->write_file_expand('nginx.conf', <<'EOF');
 
 %%TEST_GLOBALS%%
@@ -48,6 +46,13 @@ http {
             proxy_cache   NAME;
             proxy_cache_valid 200 1m;
         }
+
+        location /min_uses {
+            proxy_pass    http://127.0.0.1:8081/;
+            proxy_cache   NAME;
+            proxy_cache_valid 200 1m;
+            proxy_cache_min_uses 2;
+        }
     }
 
     server {
@@ -56,22 +61,28 @@ http {
 
         location / {
         }
+
+        location /tbig.html {
+            limit_rate 50k;
+        }
     }
 }
 
 EOF
 
 $t->write_file('t.html', 'SEE-THIS');
+
+# should not fit in a single proxy buffer
+
+$t->write_file('tbig.html',
+	join('', map { sprintf "XX%06dXX", $_ } (1 .. 7000)));
+
 $t->run();
 
 ###############################################################################
 
-{
-local $TODO = 'not yet' unless $t->has_version('1.5.13');
-
 like(http_get_range('/t.html?1', 'Range: bytes=4-'), qr/^THIS/m,
 	'range on first request');
-}
 
 {
 local $TODO = 'not yet';
@@ -85,7 +96,14 @@ like(http_get_range('/t.html?1', 'Range: bytes=4-'), qr/^THIS/m,
 like(http_get_range('/t.html?1', 'Range: bytes=0-2,4-'), qr/^SEE.*^THIS/ms,
 	'cached multipart range');
 
-like(`grep -F '[alert]' ${\($t->testdir())}/error.log`, qr/^$/s, 'no alerts');
+like(http_get_range('/min_uses/t.html?3', 'Range: bytes=4-'),
+	qr/^THIS/m, 'range below min_uses');
+
+like(http_get_range('/min_uses/t.html?4', 'Range: bytes=0-2,4-'),
+	qr/^SEE.*^THIS/ms, 'multipart range below min_uses');
+
+like(http_get_range('/tbig.html', 'Range: bytes=0-19'),
+	qr/^XX000001XXXX000002XX$/ms, 'range of response received in parts');
 
 ###############################################################################
 

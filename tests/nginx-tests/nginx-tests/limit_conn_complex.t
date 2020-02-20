@@ -24,7 +24,7 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-my $t = Test::Nginx->new()->has(qw/http proxy limit_conn limit_req shmem/)
+my $t = Test::Nginx->new()->has(qw/http proxy limit_conn limit_req/)
 	->plan(4);
 
 $t->write_file_expand('nginx.conf', <<'EOF');
@@ -39,12 +39,9 @@ events {
 http {
     %%TEST_GLOBALS_HTTP%%
 
-    lingering_close on;
-
-    limit_req_zone   $binary_remote_addr $arg_r  zone=req:1m rate=1r/s;
-    limit_req_zone   $binary_remote_addr         zone=req2:1m rate=1r/s;
+    limit_req_zone   $binary_remote_addr$arg_r  zone=req:1m rate=1r/m;
+    limit_req_zone   $binary_remote_addr        zone=re2:1m rate=1r/m;
     limit_conn_zone  $binary_remote_addr$arg_c  zone=conn:1m;
-    error_log %%TESTDIR%%/error_limit_xxx.log debug;
 
     server {
         listen       127.0.0.1:8080;
@@ -56,18 +53,22 @@ http {
 
         location /w {
             limit_conn conn 1;
-            proxy_pass http://127.0.0.1:8080/req;
+            proxy_pass http://127.0.0.1:8080/req2;
         }
 
         location /req {
             limit_req  zone=req burst=2;
-            limit_req  zone=req2 burst=2;
+        }
+
+        location /req2 {
+            limit_req  zone=re2 burst=2;
         }
     }
 }
 
 EOF
 
+$t->write_file('req', '');
 $t->run();
 
 ###############################################################################
@@ -81,16 +82,17 @@ http_get('/req');
 # limit_req tests
 
 $s = http_get('/req', start => 1);
-ok(!IO::Select->new($s)->can_read(0.1), 'limit_req same key');
+ok(!IO::Select->new($s)->can_read(1), 'limit_req same key');
 
-$s = http_get('/req?r=2', start => 1);
-ok(!IO::Select->new($s)->can_read(0.1), 'limit_req different key');
+like(http_get('/req?r=2'), qr/200 OK/, 'limit_req different key');
 
 # limit_conn tests
 
+http_get('/req2');
+
 $s = http_get('/w', start => 1);
 select undef, undef, undef, 0.2;
- 
+
 like(http_get('/'), qr/^HTTP\/1.. 503 /, 'limit_conn same key');
 unlike(http_get('/?c=2'), qr/^HTTP\/1.. 503 /, 'limit_conn different key');
 
