@@ -1,4 +1,4 @@
-FROM alpine:3.5
+FROM alpine:3.8
 
 MAINTAINER Zeyu Ye <Shuliyey@gmail.com>
 
@@ -6,8 +6,6 @@ ENV CONFIG "\
       --prefix=/etc/tengine \
       --conf-path=/etc/tengine/tengine.conf \
       --sbin-path=/usr/sbin/tengine \
-      --dso-path=/etc/tengine/modules \
-      --dso-tool-path=/usr/sbin/dso_tool \
       --pid-path=/var/run/tengine.pid \
       --lock-path=/var/run/lock/tengine.lock \
       --user=tengine \
@@ -24,23 +22,15 @@ ENV CONFIG "\
       --with-ipv6 \
       --with-pcre-jit \
       --with-http_dav_module \
-      --with-http_geoip_module=shared \
       --with-http_gunzip_module \
       --with-http_gzip_static_module \
       --with-http_random_index_module \
-      --with-http_memcached_module=shared \
       --with-http_realip_module \
-      --with-http_secure_link_module=shared \
       --with-http_ssl_module \
       --with-http_v2_module \
       --with-http_stub_status_module \
       --with-http_addition_module \
       --with-http_degradation_module \
-      --with-http_flv_module=shared \
-      --with-http_mp4_module=shared\
-      --with-http_sub_module=shared \
-      --with-http_sysguard_module=shared \
-      --with-http_reqstat_module=shared \
       --with-file-aio \
       --with-mail \
       --with-mail_ssl_module \
