@@ -21,11 +21,17 @@ ENV CONFIG "\
       --with-imap_ssl_module \
       --with-ipv6 \
       --with-pcre-jit \
+      --with-http_addition_module \
+      --with-http_auth_request_module \
       --with-http_dav_module \
       --with-http_gunzip_module \
       --with-http_gzip_static_module \
+      --with-http_flv_module \
+      --with-http_mp4_module \
       --with-http_random_index_module \
       --with-http_realip_module \
+      --with-http_secure_link_module \
+      --with-http_sub_module \
       --with-http_ssl_module \
       --with-http_v2_module \
       --with-http_stub_status_module \
@@ -34,7 +40,11 @@ ENV CONFIG "\
       --with-file-aio \
       --with-mail \
       --with-mail_ssl_module \
-      --with-jemalloc"
+      --with-jemalloc \
+      --with-threads \
+      --with-cc-opt='-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic -fPIC -Wno-error=cast-function-type' \
+      --with-ld-opt='-Wl,-z,relro -Wl,-z,now -pie'"
+
 
 ADD . /root
 
@@ -54,8 +64,8 @@ RUN \
         jemalloc-dev \
         geoip-dev \
     && cd /root \
-    && ./configure $CONFIG --with-debug \
-    && make install \
+    && ./configure $CONFIG \
+    && make install -j$(nproc) \
     && chown tengine:www-data /var/log/tengine \
     && chmod 750 /var/log/tengine \
     && install -d /var/lib/tengine /var/www/tengine \
