@@ -41,9 +41,7 @@ ENV CONFIG "\
       --with-mail \
       --with-mail_ssl_module \
       --with-jemalloc \
-      --with-threads \
-      --with-cc-opt='-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic -fPIC -Wno-error=cast-function-type' \
-      --with-ld-opt='-Wl,-z,relro -Wl,-z,now -pie'"
+      --with-threads"
 
 
 ADD . /root
@@ -54,25 +52,31 @@ RUN \
     && addgroup -S www-data \
     && adduser tengine www-data \
     && apk add --update \
-        gcc \
-        libc-dev \
-        make \
-        openssl-dev \
-        pcre-dev \
-        zlib-dev \
-        linux-headers \
-        jemalloc-dev \
-        geoip-dev \
+      gcc \
+      libc-dev \
+      make \
+      openssl-dev \
+      pcre-dev \
+      zlib-dev \
+      linux-headers \
+      jemalloc-dev \
+      geoip-dev \
+    && apk --no-cache add php5 php5-fpm php5-mysqli php5-json php5-openssl php5-curl php5-soap \
+      php5-zlib php5-xmlrpc php5-phar php5-intl php5-dom php5-xmlreader php5-ctype php5-gd supervisor curl \
     && cd /root \
     && ./configure $CONFIG \
+      # --with-cc-opt='-O2 -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic -fPIC -Wno-error=cast-function-type' \
+      # --with-ld-opt='-Wl,-z,relro -Wl,-z,now -pie' \
     && make install -j$(nproc) \
     && chown tengine:www-data /var/log/tengine \
     && chmod 750 /var/log/tengine \
     && install -d /var/lib/tengine /var/www/tengine \
-    && chown tengine:www-data /var/www/tengine \
+    && chown tengine:www-data /var/www/tengine
     # forward request and error logs to docker log collector
-    && ln -sf /dev/stdout /var/log/tengine/access.log \
-    && ln -sf /dev/stderr /var/log/tengine/error.log
+    # && ln -sf /dev/stdout /var/log/tengine/access.log \
+    # && ln -sf /dev/stderr /var/log/tengine/error.log
+
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Remove unneeded packages/files
 RUN apk del gcc linux-headers make \
@@ -83,4 +87,4 @@ EXPOSE 80 443
 
 WORKDIR /var/www
 
-CMD ["tengine", "-g", "daemon off;"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
